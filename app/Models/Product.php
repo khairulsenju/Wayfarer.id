@@ -27,6 +27,7 @@ class Product extends Model
     protected $fillable = [
         'category_id',
         'name',
+        'description',
         'slug',
         'image',
         'mode',
@@ -90,12 +91,18 @@ class Product extends Model
 
     public function canBeSold(): bool
     {
-        return in_array($this->mode, [self::MODE_SALE, self::MODE_BOTH], true);
+        return in_array($this->mode, [
+            self::MODE_SALE,
+            self::MODE_BOTH
+        ], true);
     }
 
     public function canBeRented(): bool
     {
-        return in_array($this->mode, [self::MODE_RENT, self::MODE_BOTH], true);
+        return in_array($this->mode, [
+            self::MODE_RENT,
+            self::MODE_BOTH
+        ], true);
     }
 
     public function modeLabel(): string

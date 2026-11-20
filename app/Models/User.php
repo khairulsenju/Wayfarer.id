@@ -55,4 +55,26 @@ class User extends Authenticatable
     {
         return $this->hasMany(Order::class);
     }
+
+    // Relasi verifikasi identitas penyewa.
+
+    public function rentalVerification(): HasOne
+    {
+        return $this->hasOne(RentalVerification::class);
+    }
+
+    // Hanya pelanggan dengan KTP dan verifikasi telepon
+    // yang telah disetujui admin yang boleh menyewa.
+
+    public function canRent(): bool
+    {
+        if (! $this->isCustomer()) {
+            return false;
+        }
+
+        $verification = $this->rentalVerification;
+
+        return $verification !== null
+            && $verification->isApproved();
+    }
 }

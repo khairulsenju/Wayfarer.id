@@ -53,6 +53,11 @@ class Order extends Model
         'order_status',
         'snap_token',
         'paid_at',
+        'rental_handover_method',
+        'rental_delivery_address',
+        'rental_agreement_version',
+        'rental_agreed_at',
+        'rental_agreed_ip',
     ];
 
     protected function casts(): array
@@ -62,6 +67,7 @@ class Order extends Model
             'deposit_total' => 'integer',
             'grand_total' => 'integer',
             'paid_at' => 'datetime',
+            'rental_agreed_at' => 'datetime',
         ];
     }
 

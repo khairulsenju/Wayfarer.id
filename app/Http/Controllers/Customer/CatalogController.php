@@ -35,11 +35,15 @@ class CatalogController extends Controller
                     $category->where('slug', $categorySlug);
                 });
             })
-            ->when($sort === 'name', function ($query) {
-                $query->orderBy('name');
-            }, function ($query) {
-                $query->latest();
-            })
+            ->when(
+                $sort === 'name',
+                function ($query) {
+                    $query->orderBy('name');
+                },
+                function ($query) {
+                    $query->latest();
+                }
+            )
             ->paginate(12)
             ->withQueryString();
 
@@ -51,6 +55,22 @@ class CatalogController extends Controller
             'mode' => $mode,
             'categorySlug' => $categorySlug,
             'sort' => $sort,
+        ]);
+    }
+
+    public function explore(): View
+    {
+        $categories = Category::orderBy('name')->get();
+
+        $products = Product::active()
+            ->with('category')
+            ->latest()
+            ->take(6)
+            ->get();
+
+        return view('customer.explore.index', [
+            'categories' => $categories,
+            'products' => $products,
         ]);
     }
 
@@ -69,8 +89,16 @@ class CatalogController extends Controller
         $validator = Validator::make(
             $request->only(['rent_start', 'rent_end']),
             [
-                'rent_start' => ['nullable', 'date', 'after_or_equal:today'],
-                'rent_end' => ['nullable', 'date', 'after_or_equal:rent_start'],
+                'rent_start' => [
+                    'nullable',
+                    'date',
+                    'after_or_equal:today',
+                ],
+                'rent_end' => [
+                    'nullable',
+                    'date',
+                    'after_or_equal:rent_start',
+                ],
             ],
             [
                 'rent_start.date' => 'Tanggal mulai sewa tidak valid.',
@@ -82,14 +110,29 @@ class CatalogController extends Controller
 
         if ($validator->fails()) {
             $dateErrors = $validator->errors()->all();
-        } elseif ($product->canBeRented() && $request->filled('rent_start') && $request->filled('rent_end')) {
+        } elseif (
+            $product->canBeRented()
+            && $request->filled('rent_start')
+            && $request->filled('rent_end')
+        ) {
             [$rentStart, $rentEnd] = $this->pricing->normalizeRange(
                 $request->input('rent_start'),
                 $request->input('rent_end')
             );
 
-            $availableRent = $this->availability->availableRentStock($product, $rentStart, $rentEnd);
-            $rentQuote = $this->pricing->line($product, 'rent', 1, $rentStart, $rentEnd);
+            $availableRent = $this->availability->availableRentStock(
+                $product,
+                $rentStart,
+                $rentEnd
+            );
+
+            $rentQuote = $this->pricing->line(
+                $product,
+                'rent',
+                1,
+                $rentStart,
+                $rentEnd
+            );
         }
 
         $related = Product::active()

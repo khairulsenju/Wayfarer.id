@@ -28,7 +28,10 @@ class CartController extends Controller
     {
         $cart = Cart::forUser($request->user()->id);
 
-        $items = $cart->items()->with('product')->orderBy('id')->get();
+        $items = $cart->items()
+            ->with('product')
+            ->orderBy('id')
+            ->get();
 
         $summary = $this->pricing->summarizeCartItems($items);
 
@@ -47,12 +50,34 @@ class CartController extends Controller
         $data = $request->validated();
 
         $product = Product::active()->findOrFail($data['product_id']);
+
         $qty = (int) $data['qty'];
+
+        // Verifikasi khusus penyewaan.
+        // Pembelian biasa tetap diperbolehkan.
+
+        if (
+            $data['type'] === CartItem::TYPE_RENT
+            && ! $request->user()->canRent()
+        ) {
+            return redirect()
+                ->route('rental-verification.index')
+                ->with(
+                    'error',
+                    'Kamu harus menyelesaikan verifikasi identitas sebelum menyewa.'
+                );
+        }
+
         $cart = Cart::forUser($request->user()->id);
 
+        // PEMBELIAN
         if ($data['type'] === CartItem::TYPE_SALE) {
+
             if (! $product->canBeSold()) {
-                return back()->with('error', $product->name . ' tidak dijual.');
+                return back()->with(
+                    'error',
+                    $product->name . ' tidak dijual.'
+                );
             }
 
             $existing = $cart->items()
@@ -65,12 +90,17 @@ class CartController extends Controller
             if (! $this->availability->isSaleAvailable($product, $total)) {
                 return back()->with(
                     'error',
-                    'Stok beli ' . $product->name . ' tersisa ' . $this->availability->availableSaleStock($product) . ' unit.'
+                    'Stok beli ' . $product->name .
+                    ' tersisa ' .
+                    $this->availability->availableSaleStock($product) .
+                    ' unit.'
                 );
             }
 
             if ($existing) {
-                $existing->update(['qty' => $total]);
+                $existing->update([
+                    'qty' => $total,
+                ]);
             } else {
                 $cart->items()->create([
                     'product_id' => $product->id,
@@ -81,14 +111,25 @@ class CartController extends Controller
 
             return redirect()
                 ->route('cart.index')
-                ->with('success', $product->name . ' ditambahkan ke keranjang untuk dibeli.');
+                ->with(
+                    'success',
+                    $product->name . ' ditambahkan ke keranjang untuk dibeli.'
+                );
         }
+
+        // PENYEWAAN
 
         if (! $product->canBeRented()) {
-            return back()->with('error', $product->name . ' tidak disewakan.');
+            return back()->with(
+                'error',
+                $product->name . ' tidak disewakan.'
+            );
         }
 
-        [$start, $end] = $this->pricing->normalizeRange($data['rent_start'], $data['rent_end']);
+        [$start, $end] = $this->pricing->normalizeRange(
+            $data['rent_start'],
+            $data['rent_end']
+        );
 
         $existing = $cart->items()
             ->where('product_id', $product->id)
@@ -99,16 +140,31 @@ class CartController extends Controller
 
         $total = $qty + ($existing ? (int) $existing->qty : 0);
 
-        if (! $this->availability->isRentAvailable($product, $start, $end, $total)) {
+        if (! $this->availability->isRentAvailable(
+            $product,
+            $start,
+            $end,
+            $total
+        )) {
             return back()->with(
                 'error',
-                'Stok sewa ' . $product->name . ' pada ' . $start->format('d/m/Y') . ' - ' . $end->format('d/m/Y')
-                . ' tersisa ' . $this->availability->availableRentStock($product, $start, $end) . ' unit.'
+                'Stok sewa ' . $product->name .
+                ' pada ' . $start->format('d/m/Y') .
+                ' - ' . $end->format('d/m/Y') .
+                ' tersisa ' .
+                $this->availability->availableRentStock(
+                    $product,
+                    $start,
+                    $end
+                ) .
+                ' unit.'
             );
         }
 
         if ($existing) {
-            $existing->update(['qty' => $total]);
+            $existing->update([
+                'qty' => $total,
+            ]);
         } else {
             $cart->items()->create([
                 'product_id' => $product->id,
@@ -121,45 +177,106 @@ class CartController extends Controller
 
         return redirect()
             ->route('cart.index')
-            ->with('success', $product->name . ' ditambahkan ke keranjang untuk disewa.');
+            ->with(
+                'success',
+                $product->name . ' ditambahkan ke keranjang untuk disewa.'
+            );
     }
 
-    public function update(UpdateCartItemRequest $request, int $item): RedirectResponse
-    {
+    public function update(
+        UpdateCartItemRequest $request,
+        int $item
+    ): RedirectResponse {
+
         $cart = Cart::forUser($request->user()->id);
 
-        $cartItem = $cart->items()->with('product')->whereKey($item)->firstOrFail();
+        $cartItem = $cart->items()
+            ->with('product')
+            ->whereKey($item)
+            ->firstOrFail();
 
         $product = $cartItem->product;
+
         $qty = (int) $request->validated('qty');
 
         if (! $product->is_active) {
-            return back()->with('error', 'Produk sudah tidak aktif. Hapus dari keranjang.');
+            return back()->with(
+                'error',
+                'Produk sudah tidak aktif. Hapus dari keranjang.'
+            );
         }
 
+        // Cegah perubahan item sewa oleh akun yang belum terverifikasi.
+
+        if (
+            $cartItem->type === CartItem::TYPE_RENT
+            && ! $request->user()->canRent()
+        ) {
+            return redirect()
+                ->route('rental-verification.index')
+                ->with(
+                    'error',
+                    'Verifikasi identitas diperlukan untuk mengubah pesanan sewa.'
+                );
+        }
+
+        // UPDATE PEMBELIAN
+
         if ($cartItem->type === CartItem::TYPE_SALE) {
+
             if (! $this->availability->isSaleAvailable($product, $qty)) {
                 return back()->with(
                     'error',
-                    'Stok beli ' . $product->name . ' tersisa ' . $this->availability->availableSaleStock($product) . ' unit.'
+                    'Stok beli ' . $product->name .
+                    ' tersisa ' .
+                    $this->availability->availableSaleStock($product) .
+                    ' unit.'
                 );
             }
 
-            $cartItem->update(['qty' => $qty]);
+            $cartItem->update([
+                'qty' => $qty,
+            ]);
 
-            return back()->with('success', 'Keranjang diperbarui.');
+            return back()->with(
+                'success',
+                'Keranjang diperbarui.'
+            );
         }
 
-        $startInput = $request->filled('rent_start') ? $request->input('rent_start') : $cartItem->rent_start;
-        $endInput = $request->filled('rent_end') ? $request->input('rent_end') : $cartItem->rent_end;
+        // UPDATE PENYEWAAN
 
-        [$start, $end] = $this->pricing->normalizeRange($startInput, $endInput);
+        $startInput = $request->filled('rent_start')
+            ? $request->input('rent_start')
+            : $cartItem->rent_start;
 
-        if (! $this->availability->isRentAvailable($product, $start, $end, $qty)) {
+        $endInput = $request->filled('rent_end')
+            ? $request->input('rent_end')
+            : $cartItem->rent_end;
+
+        [$start, $end] = $this->pricing->normalizeRange(
+            $startInput,
+            $endInput
+        );
+
+        if (! $this->availability->isRentAvailable(
+            $product,
+            $start,
+            $end,
+            $qty
+        )) {
             return back()->with(
                 'error',
-                'Stok sewa ' . $product->name . ' pada ' . $start->format('d/m/Y') . ' - ' . $end->format('d/m/Y')
-                . ' tersisa ' . $this->availability->availableRentStock($product, $start, $end) . ' unit.'
+                'Stok sewa ' . $product->name .
+                ' pada ' . $start->format('d/m/Y') .
+                ' - ' . $end->format('d/m/Y') .
+                ' tersisa ' .
+                $this->availability->availableRentStock(
+                    $product,
+                    $start,
+                    $end
+                ) .
+                ' unit.'
             );
         }
 
@@ -169,16 +286,28 @@ class CartController extends Controller
             'rent_end' => $end->toDateString(),
         ]);
 
-        return back()->with('success', 'Keranjang diperbarui.');
+        return back()->with(
+            'success',
+            'Keranjang diperbarui.'
+        );
     }
 
-    public function destroy(Request $request, int $item): RedirectResponse
-    {
+    public function destroy(
+        Request $request,
+        int $item
+    ): RedirectResponse {
+
         $cart = Cart::forUser($request->user()->id);
 
-        $cart->items()->whereKey($item)->firstOrFail()->delete();
+        $cart->items()
+            ->whereKey($item)
+            ->firstOrFail()
+            ->delete();
 
-        return back()->with('success', 'Item dihapus dari keranjang.');
+        return back()->with(
+            'success',
+            'Item dihapus dari keranjang.'
+        );
     }
 
     public function clear(Request $request): RedirectResponse
@@ -189,6 +318,9 @@ class CartController extends Controller
 
         return redirect()
             ->route('cart.index')
-            ->with('success', 'Keranjang dikosongkan.');
+            ->with(
+                'success',
+                'Keranjang dikosongkan.'
+            );
     }
 }

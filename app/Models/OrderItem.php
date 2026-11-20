@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class OrderItem extends Model
 {
@@ -21,6 +22,11 @@ class OrderItem extends Model
         'rent_days',
         'deposit',
         'subtotal',
+        'approved_rent_end',
+        'handed_over_at',
+        'handover_tracking_number',
+        'handover_proof_path',
+        'handover_notes',
     ];
 
     protected function casts(): array
@@ -33,6 +39,8 @@ class OrderItem extends Model
             'rent_days' => 'integer',
             'deposit' => 'integer',
             'subtotal' => 'integer',
+            'approved_rent_end' => 'date',
+            'handed_over_at' => 'datetime',
         ];
     }
 
@@ -49,5 +57,10 @@ class OrderItem extends Model
     public function isRent(): bool
     {
         return $this->type === self::TYPE_RENT;
+    }
+    
+    public function rentalReturn(): HasOne
+    {
+        return $this->hasOne(RentalReturn::class);
     }
 }
